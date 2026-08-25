@@ -79,8 +79,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "memory_log_max_entries": None,
     # LLM settings
     "llm_provider": "openai",
-    "deep_think_llm": "gpt-5.5",
-    "quick_think_llm": "gpt-5.4-mini",
+    "deep_think_llm": "gpt-5.2",
+    "quick_think_llm": "gpt-5.4-nano",
     # When None, each provider's client falls back to its own default endpoint
     # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
     # The CLI overrides this per provider when the user picks one. Keeping a
@@ -107,8 +107,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Internal agent debate stays in English for reasoning quality
     "output_language": "English",
     # Debate and discussion settings
-    "max_debate_rounds": 1,
-    "max_risk_discuss_rounds": 1,
+    "max_debate_rounds": 2,
+    "max_risk_discuss_rounds": 2,
     "max_recur_limit": 100,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;

@@ -1,5 +1,7 @@
+from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from tradingagents.agents.schemas import DomainReport, render_domain_report
 from tradingagents.agents.utils.agent_utils import (
     get_global_news,
     get_instrument_context_from_state,
@@ -8,6 +10,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_news,
     get_prediction_markets,
 )
+from tradingagents.agents.utils.structured import bind_structured
 
 
 def create_news_analyst(llm):
@@ -26,7 +29,11 @@ def create_news_analyst(llm):
 
         system_message = (
             f"You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(ticker, start_date, end_date) for {asset_label}-specific news by ticker symbol, get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news, get_macro_indicators(indicator, curr_date, look_back_days) to ground macro commentary in actual data from FRED (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve'), and get_prediction_markets(topic, limit) for live market-implied probabilities of forward-looking events (e.g. 'Fed rate cut', 'recession 2026', geopolitical or sector events). Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            + " You must format your final conclusion complying with the DomainReport schema containing: "
+            "1. analyst_findings (objective news summaries, macro data points, and predictions), "
+            "2. debate_summary (perspectives on bullish catalysts vs bearish macroeconomic/geopolitical risks), "
+            "3. bull_score (0-100 integer score representing news/macro bullish intensity), "
+            "4. bear_score (0-100 integer score representing news/macro bearish/risk intensity)."
             + get_language_instruction()
         )
 
@@ -53,17 +60,31 @@ def create_news_analyst(llm):
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
 
+        formatted_messages = prompt.format_messages(messages=state["messages"])
+        structured_llm = bind_structured(llm, DomainReport, "News Analyst")
+
         chain = prompt | llm.bind_tools(tools)
         result = chain.invoke(state["messages"])
 
         report = ""
-
         if len(result.tool_calls) == 0:
             report = result.content
 
+        # 도구 실행이 끝난 최종 단계에서 DomainReport 포맷으로 렌더링
+        final_report_text = report
+        if len(result.tool_calls) == 0:
+            from tradingagents.agents.utils.structured import invoke_structured_or_freetext
+            final_report_text = invoke_structured_or_freetext(
+                structured_llm,
+                llm,
+                formatted_messages,
+                lambda r: render_domain_report("News", r),
+                "News Analyst",
+            )
+
         return {
             "messages": [result],
-            "news_report": report,
+            "news_report": final_report_text,
         }
 
     return news_analyst_node

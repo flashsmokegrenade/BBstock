@@ -1,5 +1,7 @@
+from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from tradingagents.agents.schemas import DomainReport, render_domain_report
 from tradingagents.agents.utils.agent_utils import (
     get_indicators,
     get_instrument_context_from_state,
@@ -7,6 +9,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_stock_data,
     get_verified_market_snapshot,
 )
+from tradingagents.agents.utils.structured import bind_structured
 
 
 def create_market_analyst(llm):
@@ -50,8 +53,11 @@ Volume-Based Indicators:
 
 Before writing the final report, call get_verified_market_snapshot for this ticker and the current date, and treat it as the source of truth for any exact OHLCV, price-level, or indicator-value claim. If another tool's output conflicts with the verified snapshot, flag the discrepancy rather than inventing a reconciled number. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete dates and prices.
 
-Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+You must format your final conclusion complying with the DomainReport schema containing:
+1. analyst_findings (objective technical data, indicator values, and price trends summarized),
+2. debate_summary (perspectives on bullish momentum vs bearish overbought/correction signals),
+3. bull_score (0-100 integer score representing technical bullish intensity),
+4. bear_score (0-100 integer score representing technical bearish/risk intensity)."""
             + get_language_instruction()
         )
 
@@ -78,18 +84,32 @@ Write a very detailed and nuanced report of the trends you observe. Provide spec
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
 
-        chain = prompt | llm.bind_tools(tools)
+        formatted_messages = prompt.format_messages(messages=state["messages"])
+        structured_llm = bind_structured(llm, DomainReport, "Market Analyst")
 
+        chain = prompt | llm.bind_tools(tools)
         result = chain.invoke(state["messages"])
 
         report = ""
-
         if len(result.tool_calls) == 0:
             report = result.content
 
+        # 도구 실행이 완료된 최종 단계에서 DomainReport 포맷으로 렌더링
+        final_report_text = report
+        if len(result.tool_calls) == 0:
+            # 구조화된 출력 시도 혹은 자유 텍스트일 경우 render_domain_report로 변환
+            from tradingagents.agents.utils.structured import invoke_structured_or_freetext
+            final_report_text = invoke_structured_or_freetext(
+                structured_llm,
+                llm,
+                formatted_messages,
+                lambda r: render_domain_report("Technical Analysis", r),
+                "Market Analyst",
+            )
+
         return {
             "messages": [result],
-            "market_report": report,
+            "market_report": final_report_text,
         }
 
     return market_analyst_node
