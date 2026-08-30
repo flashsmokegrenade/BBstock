@@ -1,27 +1,57 @@
 @echo off
-chcp 65001 > nul
+title TradingAgents Launcher
 cd /d "%~dp0"
 
-rem [경로 강제 고정] 파이썬이 무조건 현재 폴더의 최신 코드를 읽도록 만듭니다.
-set PYTHONPATH=%~dp0
-set PYTHONIOENCODING=utf-8
-
-rem 1. 미국 주식 티커 입력 받기
-set /p ticker="🔍 분석할 주식 티커를 입력하세요 (예: TSLA, AAPL, NVDA): "
-
-rem 2. 오늘 날짜(YYYY-MM-DD) 자동 추출
-for /f "tokens=*" %%i in ('python -c "from datetime import datetime; print(datetime.now().strftime('%%Y-%%m-%%d'))"') do set TODAY=%%i
-
-echo.
-echo [INFO] 프로그램 실시간 구동 시작합니다...
-echo ---------------------------------------------------------
-echo 🚀 분석을 시작합니다... [종목: %ticker% ^| 기준 날짜: %TODAY%]
-echo ---------------------------------------------------------
+echo ========================================================
+echo         TradingAgents Analysis System
+echo ========================================================
 echo.
 
-rem 3. 오늘 날짜(%TODAY%)로 파이썬 실행
-python main.py --ticker %ticker% --date %TODAY% --models gpt-4o-mini --rounds 2
+:: 1. Python check
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Python is not installed or not in PATH.
+    echo Please install Python 3.10+ from https://www.python.org
+    echo Make sure to check "Add python.exe to PATH" during installation.
+    echo.
+    pause
+    exit /b
+)
 
+:: 2. Setup environment package
+echo [*] Checking package setup...
+python -m pip install -e . >nul 2>&1
+
+:: 3. Check .env file
+if not exist ".env" (
+    if exist ".env.enterprise.example" (
+        copy ".env.enterprise.example" ".env" >nul
+    ) else (
+        echo OPENAI_API_KEY=> .env
+    )
+    echo [NOTICE] .env file created. Please enter your OPENAI_API_KEY in Notepad.
+    start notepad .env
+    echo Save and close Notepad, then press any key to continue.
+    pause >nul
+)
+
+:: 4. Run Loop
+:RUN_LOOP
+echo.
 echo ---------------------------------------------------------
-echo 분석이 모두 완료되었습니다.
+set /p TICKER="Enter Stock Ticker (e.g. TSLA, AAPL, NVDA): "
+if "%TICKER%"=="" goto RUN_LOOP
+
+echo.
+echo [INFO] Running TradingAgents for %TICKER%...
+echo ---------------------------------------------------------
+python main.py --ticker %TICKER%
+echo ---------------------------------------------------------
+echo [INFO] Analysis completed.
+echo.
+
+set /p AGAIN="Do you want to analyze another stock? (Y/N): "
+if /i "%AGAIN%"=="Y" goto RUN_LOOP
+
+echo Closing program...
 pause

@@ -1,5 +1,10 @@
 import os
 import sys
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
 import re
 import argparse
 from datetime import datetime
@@ -8,7 +13,6 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 
-# 1. 터미널 출력과 텍스트 버퍼를 동시에 기록하는 로거
 class DualLogger:
     def __init__(self):
         self.terminal = sys.stdout
@@ -25,7 +29,6 @@ class DualLogger:
         return "".join(self.log)
 
 
-# 2. 리포트 본문에서 실제 최종 결정을 정확히 추출하는 함수
 def extract_final_decision(full_log: str) -> str:
     match = re.search(r"FINAL TRANSACTION PROPOSAL:\s*\*\*([A-Za-z]+)\*\*", full_log, re.IGNORECASE)
     if match:
@@ -38,7 +41,6 @@ def extract_final_decision(full_log: str) -> str:
     return "HOLD"
 
 
-# 3. 최종 결정을 판별하여 바탕화면 3개 폴더에 분류 저장하는 함수
 def save_report_to_desktop(ticker: str, target_date: str, full_log: str, final_decision: str):
     user_profile = os.environ.get("USERPROFILE", os.path.expanduser("~"))
 
@@ -56,7 +58,7 @@ def save_report_to_desktop(ticker: str, target_date: str, full_log: str, final_d
             break
 
     if not desktop_path:
-        desktop_path = os.path.join(user_profile, "Desktop")
+        desktop_path = os.path.join(CURRENT_DIR, "desktop_output")
 
     base_dir = os.path.join(desktop_path, "stock_db")
     folder_map = {
@@ -98,7 +100,6 @@ def main():
     
     args = parser.parse_args()
 
-    # 실시간 콘솔 출력 + 텍스트 가로채기 활성화
     logger = DualLogger()
     original_stdout = sys.stdout
     sys.stdout = logger
@@ -111,29 +112,27 @@ def main():
 
         config = DEFAULT_CONFIG.copy()
         
-        # [핵심 1] 과거 기록 메모리 주입 개수를 0으로 설정하여 로딩 차단
+        # 과거 메모리 의존성 차단
         config["memory_log_max_entries"] = 0
         if "enable_memory" in config:
             config["enable_memory"] = False
         
-        # [핵심 2] 한국어 지침 + 과거 기록 무시 및 독립 분석 지침 결합
-        korean_and_no_memory_instruction = (
+        # [성능 최적화 지침] 내부 추론/토론은 영어로 진행하여 깊이 유지 + 최종 전략 리포트만 한국어로 작성
+        hybrid_language_instruction = (
             "\n\n[SYSTEM DIRECTION:\n"
-            "1. You must conduct all conversations, tool summaries, reasoning steps, and final output reports entirely in Korean.\n"
-            "모든 분석 과정, 에이전트 간의 대화, 이유(Reasoning), 기술/재무 지표 요약 설명, 그리고 최종 결정(FINAL TRANSACTION PROPOSAL) 리포트를 반드시 완벽한 한국어로만 작성해 주세요.\n"
-            "2. Do NOT rely on, cite, or retrieve any past memory or historical trade reflections (past_context). Evaluate the ticker strictly and independently based only on the current market data and financial indicators provided for this specific analysis date.]"
+            "1. REASONING & DEBATE IN ENGLISH: All internal agent discussions, technical analyses, fundamentals evaluations, domain reports, and intermediate reasoning steps MUST be conducted strictly in English to maximize financial reasoning depth and analytical performance.\n"
+            "2. FINAL REPORT IN KOREAN: The 'Final Trading Strategy Report' (including Risk Evaluation, Executive Summary, Investment Thesis, and Final Decision) MUST be written entirely in professional, fluent, and clear Korean.\n"
+            "3. NO MEMORY: Do NOT rely on, cite, or retrieve any past memory or historical trade reflections (past_context). Evaluate the ticker strictly and independently based only on the current market data and financial indicators provided for this specific analysis date.]"
         )
         
         if "system_prompt_suffix" in config:
-            config["system_prompt_suffix"] += korean_and_no_memory_instruction
+            config["system_prompt_suffix"] += hybrid_language_instruction
         else:
-            config["system_prompt_suffix"] = korean_and_no_memory_instruction
+            config["system_prompt_suffix"] = hybrid_language_instruction
 
-        # 그래프 초기화 및 구동
         ta = TradingAgentsGraph(debug=True, config=config)
         ta.propagate(args.ticker, args.date)
 
-        # 버퍼에 쌓인 전체 리포트 본문에서 실제 최종 결정을 추출
         full_text = logger.get_content()
         final_decision = extract_final_decision(full_text)
         
@@ -148,9 +147,8 @@ def main():
 
     finally:
         full_text = logger.get_content()
-        sys.stdout = original_stdout  # 터미널 출력 복원
+        sys.stdout = original_stdout
 
-        # 분석이 에러 없이 정상적으로 끝났을 때만 파일 저장
         if success:
             save_report_to_desktop(args.ticker, args.date, full_text, final_decision)
         else:
