@@ -26,7 +26,11 @@ class DualLogger:
         self.terminal.flush()
 
     def get_content(self):
-        return "".join(self.log)
+        # 전체 텍스트 합치기
+        raw_text = "".join(self.log)
+        # 3개 이상 연속된 개행(\n\n\n...)을 깔끔하게 2개(\n\n)로 압축하고 앞뒤 공백 제거
+        cleaned_text = re.sub(r'\n{3,}', '\n\n', raw_text).strip()
+        return cleaned_text
 
 
 def extract_final_decision(full_log: str) -> str:
@@ -82,8 +86,11 @@ def save_report_to_desktop(ticker: str, target_date: str, full_log: str, final_d
     file_name = f"[{target_date}] {ticker}_{final_decision}_{timestamp}.txt"
     file_path = os.path.join(target_folder, file_name)
 
+    # 끝부분 공백 및 빈 줄 확실하게 정리 후 저장
+    clean_log_for_file = full_log.rstrip() + "\n"
+
     with open(file_path, "w", encoding="utf-8") as f:
-        f.write(full_log)
+        f.write(clean_log_for_file)
 
     print(f"\n[📁 자동 저장 완료] 리포트가 성공적으로 분류 저장되었습니다:")
     print(f"-> 저장 경로: {file_path}")
@@ -112,12 +119,10 @@ def main():
 
         config = DEFAULT_CONFIG.copy()
         
-        # 과거 메모리 의존성 차단
         config["memory_log_max_entries"] = 0
         if "enable_memory" in config:
             config["enable_memory"] = False
         
-        # [성능 최적화 지침] 내부 추론/토론은 영어로 진행하여 깊이 유지 + 최종 전략 리포트만 한국어로 작성
         hybrid_language_instruction = (
             "\n\n[SYSTEM DIRECTION:\n"
             "1. REASONING & DEBATE IN ENGLISH: All internal agent discussions, technical analyses, fundamentals evaluations, domain reports, and intermediate reasoning steps MUST be conducted strictly in English to maximize financial reasoning depth and analytical performance.\n"

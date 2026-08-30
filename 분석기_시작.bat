@@ -1,5 +1,5 @@
 @echo off
-title TradingAgents Launcher
+setlocal
 cd /d "%~dp0"
 
 echo ========================================================
@@ -7,35 +7,18 @@ echo         TradingAgents Analysis System
 echo ========================================================
 echo.
 
-:: 1. Python check
+:: Python Check
 python --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python is not installed or not in PATH.
-    echo Please install Python 3.10+ from https://www.python.org
-    echo Make sure to check "Add python.exe to PATH" during installation.
-    echo.
     pause
     exit /b
 )
 
-:: 2. Setup environment package
+:: Package Connect
 echo [*] Checking package setup...
 python -m pip install -e . >nul 2>&1
 
-:: 3. Check .env file
-if not exist ".env" (
-    if exist ".env.enterprise.example" (
-        copy ".env.enterprise.example" ".env" >nul
-    ) else (
-        echo OPENAI_API_KEY=> .env
-    )
-    echo [NOTICE] .env file created. Please enter your OPENAI_API_KEY in Notepad.
-    start notepad .env
-    echo Save and close Notepad, then press any key to continue.
-    pause >nul
-)
-
-:: 4. Run Loop
 :RUN_LOOP
 echo.
 echo ---------------------------------------------------------
