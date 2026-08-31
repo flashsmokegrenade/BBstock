@@ -103,7 +103,7 @@ def main():
     parser.add_argument("--ticker", type=str, required=True, help="Stock ticker symbol")
     parser.add_argument("--date", type=str, default=today_str, help="Analysis date (YYYY-MM-DD), defaults to today")
     parser.add_argument("--models", type=str, default="gpt-4o-mini", help="LLM model to use")
-    parser.add_argument("--rounds", type=int, default=2, help="Number of rounds")
+    parser.add_argument("--rounds", type=int, default=1, help="Number of rounds (Default: 1)")
     
     args = parser.parse_args()
 
@@ -119,6 +119,11 @@ def main():
 
         config = DEFAULT_CONFIG.copy()
         
+        # 1. 라운드 수 축소 (토론 및 리스크 회의를 1회로 제한하여 실행 속도 2배 향상)
+        config["max_debate_rounds"] = args.rounds
+        config["max_risk_discuss_rounds"] = args.rounds
+        
+        # 2. 과거 메모리 의존성 차단
         config["memory_log_max_entries"] = 0
         if "enable_memory" in config:
             config["enable_memory"] = False

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import sys
 import contextlib
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -11,11 +12,10 @@ from typing import Any
 import yfinance as yf
 from langgraph.prebuilt import ToolNode
 
-# ================= [추가된 부분: yfinance 시스템 에러 로그 화면 출력 완벽 차단] =================
+# ================= [yfinance 시스템 에러 로그 화면 출력 완벽 차단] =================
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
-# ==================================================================================================
+# ===================================================================================
 
-# Import the abstract tool methods from agent_utils
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
@@ -188,7 +188,6 @@ class TradingAgentsGraph:
             end = start + timedelta(days=holding_days + 7)
             end_str = end.strftime("%Y-%m-%d")
 
-            # yfinance 에러 메시지 원천 차단
             with open(os.devnull, 'w') as devnull:
                 with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
                     stock = yf.Ticker(normalize_symbol(ticker)).history(start=trade_date, end=end_str)
@@ -248,7 +247,6 @@ class TradingAgentsGraph:
         ])
 
     def propagate(self, company_name, trade_date, asset_type: str = "stock"):
-        # 순수한 티커명만 저장하여 API 호출 시 URL 깨짐 방지
         self.ticker = company_name.split('\n')[0].strip()
 
         self._resolve_pending_entries(self.ticker)
@@ -283,15 +281,11 @@ class TradingAgentsGraph:
 
     def _run_graph(self, company_name, trade_date, asset_type: str = "stock"):
         """Execute the graph and write the resulting state to disk and memory log."""
-        import sys
-
-        # 1. API 호출 오류를 막기 위해 순수 티커명만 추출합니다.
         pure_company = company_name.split('\n')[0].strip()
 
         past_context = self.memory_log.get_past_context(pure_company)
         instrument_context = self.resolve_instrument_context(pure_company, asset_type)
 
-        # 2. State 생성 시 순수 티커명만 전달
         init_agent_state = self.propagator.create_initial_state(
             pure_company,
             trade_date,
@@ -305,71 +299,27 @@ class TradingAgentsGraph:
             tid = thread_id(pure_company, str(trade_date), self._run_signature(asset_type))
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = tid
 
-        # ================= [완벽히 통제된 디버그 출력 블록] =================
-        if self.debug:
-            trace = []
-            for chunk in self.graph.stream(init_agent_state, **args):
-                if chunk.get("messages"):
-                    msg = chunk["messages"][-1]
-                    
-                    msg_type = getattr(msg, "type", "")
-                    msg_class = type(msg).__name__
-                    content = getattr(msg, "content", "")
-
-                    if msg_type == "tool" or msg_class == "ToolMessage" or getattr(msg, "tool_calls", None):
-                        trace.append(chunk)
-                        continue
-                        
-                    if not content or not isinstance(content, str):
-                        trace.append(chunk)
-                        continue
-
-                    system_noise_keywords = [
-                        "Use this snapshot as the source of truth",
-                        "Human Message",
-                        "Tool Calls:",
-                        "Tool Message",
-                        "get_verified_market_snapshot",
-                        "Proceed with your assigned analysis",
-                        "possibly delisted",
-                        "Yahoo error",
-                        "call_ID:",
-                        "Call ID:"
-                    ]
-                    if any(keyword in content for keyword in system_noise_keywords):
-                        trace.append(chunk)
-                        continue
-
-                    trace.append(chunk)
-                    
-            final_state = {}
-            for chunk in trace:
-                final_state.update(chunk)
-        else:
-            final_state = self.graph.invoke(init_agent_state, **args)
-        # =====================================================================
+        # 안정적인 그래프 일괄 실행
+        print("\n🔄 에이전트들이 데이터 수집, 토론 및 리스크 검증을 진행 중입니다... (약 1~2분 소요)")
+        final_state = self.graph.invoke(init_agent_state, **args)
 
         self.curr_state = final_state
 
-        # ================= [비용 0원: 순수 파이썬 문자열 필터링만 적용 (LLM 미호출)] =================
+        # ================= [비용 0원: 순수 파이썬 문자열 필터링만 적용] =================
         try:
             report_keys = ["market_report", "sentiment_report", "news_report", "fundamentals_report", "final_trade_decision"]
-            
             for r_key in report_keys:
                 content = final_state.get(r_key, "")
-                if content:
-                    # 가짜 데이터가 포함된 줄만 삭제 (API 비용 발생 안 함)
+                if content and isinstance(content, str):
                     if "2023" in content:
                         lines = content.split('\n')
                         clean_lines = [l for l in lines if not any(x in l for x in ["2023", "AAPL", "MSFT", "GOOG"])]
                         content = '\n'.join(clean_lines)
-                    
                     final_state[r_key] = content
-
         except Exception as filter_error:
             logger.warning("전체 보고서 필터링 과정에서 예외 발생: %s", filter_error)
 
-        # ================= [영문 리포트 터미널 출력] =================
+        # ================= [리포트 터미널 출력] =================
         report_titles = {
             "market_report": "Technical Analysis Report",
             "sentiment_report": "Social Sentiment Report",
@@ -379,18 +329,19 @@ class TradingAgentsGraph:
         }
         for r_key, title_name in report_titles.items():
             clean_content = final_state.get(r_key, "")
-            if clean_content:
+            if clean_content and isinstance(clean_content, str):
                 sys.stdout.write(f"\n{'='*50}\n[{title_name}]\n{'='*50}\n{clean_content.strip()}\n")
                 sys.stdout.flush()
 
         # ================= [디스크에 데이터 기록] =================
         self._log_state(trade_date, final_state)
 
-        self.memory_log.store_decision(
-            ticker=pure_company,
-            trade_date=trade_date,
-            final_trade_decision=final_state["final_trade_decision"],
-        )
+        if final_state.get("final_trade_decision"):
+            self.memory_log.store_decision(
+                ticker=pure_company,
+                trade_date=trade_date,
+                final_trade_decision=final_state["final_trade_decision"],
+            )
 
         if self.config.get("checkpoint_enabled"):
             clear_checkpoint(
@@ -398,12 +349,12 @@ class TradingAgentsGraph:
                 self._run_signature(asset_type),
             )
 
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        return final_state, self.process_signal(final_state.get("final_trade_decision", ""))
 
     def _log_state(self, trade_date, final_state):
         self.log_states_dict[str(trade_date)] = {
-            "company_of_interest": final_state["company_of_interest"],
-            "trade_date": final_state["trade_date"],
+            "company_of_interest": final_state.get("company_of_interest", ""),
+            "trade_date": final_state.get("trade_date", str(trade_date)),
             "market_report": final_state.get("market_report", ""),
             "sentiment_report": final_state.get("sentiment_report", ""),
             "news_report": final_state.get("news_report", ""),
